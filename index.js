@@ -1,7 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 import fs from "fs";
-import path from "path";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegPath from "ffmpeg-static";
 import dotenv from "dotenv";
@@ -39,67 +38,93 @@ async function generateScript(topic) {
   return data.choices[0].message.content.trim();
 }
 
-// === 2. HeyGen генерит видео по тексту ===
-// === 2. HeyGen генерит видео по тексту ===
-// === 2. HeyGen генерит видео по тексту ===
+// === берём первый доступный аватар ===
+async function pickDefaultAvatarId() {
+  const r = await fetch("https://api.heygen.com/v2/avatars", {
+    headers: { "X-Api-Key": process.env.HEYGEN_KEY }
+  });
+  const t = await r.text();
+  console.log("AVATARS RAW:", r.status, t);
+  const data = JSON.parse(t);
+  const list = (data.avatars || []).filter(a => a && typeof a.avatar_id === "string");
+  if (!list.length) throw new Error("No avatars available");
+  const nonPremium = list.find(a => a.premium === false) || list[0];
+  return nonPremium.avatar_id;
+}
+
+// === берём первый доступный голос EN ===
+async function pickDefaultVoiceId() {
+  const r = await fetch("https://api.heygen.com/v2/voices", {
+    headers: { "X-Api-Key": process.env.HEYGEN_KEY }
+  });
+  const t = await r.text();
+  console.log("VOICES RAW:", r.status, t);
+  const data = JSON.parse(t);
+  const list = (data.voices || []).filter(v => v && typeof v.voice_id === "string");
+  if (!list.length) throw new Error("No voices available");
+  const en = list.find(v => (v.language || "").toLowerCase().startsWith("en"));
+  return (en || list[0]).voice_id;
+}
+
+// === 2. HeyGen генерит видео ===
 async function generateHeygenVideo(script, outFile) {
-  const resp = await fetch("https://api.heygen.com/v2/video/generate", {
+  const [avatar_id, voice_id] = await Promise.all([
+    pickDefaultAvatarId(),
+    pickDefaultVoiceId()
+  ]);
+
+  const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
     headers: {
       "X-Api-Key": process.env.HEYGEN_KEY,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      background: "white",
       dimension: { width: 1280, height: 720 },
+      background: { type: "color", value: "#ffffff" },   // 👈 фон на верхнем уровне
       video_inputs: [
         {
-          character: { type: "preset", character_id: "Anna_public_3_20240108" },
-          voice: { type: "preset", voice_id: "1bd001e7e50f421d891986aad5158bc8" },
-          input_text: script
+          avatar: { avatar_id },                         // 👈 avatar, не character
+          voice: { type: "text", voice_id, input_text: script }
         }
       ]
     })
   });
 
-  const text = await resp.text();
-  console.log("HEYGEN RAW:", text);
-
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("HeyGen вернул не JSON (скорее всего 401 Unauthorized). Проверь HEYGEN_KEY");
-  }
-
-  if (!data.data || !data.data.video_id) {
-    throw new Error("HeyGen error: " + JSON.stringify(data));
-  }
-
-  const videoId = data.data.video_id;
+  const createText = await createResp.text();
+  console.log("HEYGEN CREATE RAW:", createResp.status, createText);
+  if (!createResp.ok) throw new Error(`HeyGen create failed: ${createText}`);
+  const createData = JSON.parse(createText);
+  const videoId = createData.video_id || (createData.data && createData.data.video_id);
+  if (!videoId) throw new Error("No video_id in create response");
 
   // ждём готовности
   let videoUrl;
-  while (true) {
-    const statusResp = await fetch(`https://api.heygen.com/v2/video/status?video_id=${videoId}`, {
+  for (;;) {
+    await new Promise(r => setTimeout(r, 3000));
+    const st = await fetch(`https://api.heygen.com/v2/video/status?video_id=${encodeURIComponent(videoId)}`, {
       headers: { "X-Api-Key": process.env.HEYGEN_KEY }
     });
-    const statusData = await statusResp.json();
-
-    if (statusData.data.status === "completed") {
-      videoUrl = statusData.data.video_url;
+    const stText = await st.text();
+    console.log("HEYGEN STATUS RAW:", st.status, stText);
+    if (!st.ok) throw new Error(`HeyGen status failed: ${stText}`);
+    const stData = JSON.parse(stText);
+    const status = (stData.data && stData.data.status) || stData.status;
+    if (status === "completed") {
+      videoUrl = (stData.data && stData.data.video_url) || stData.video_url;
       break;
     }
-    if (statusData.data.status === "failed") {
-      throw new Error("HeyGen failed to generate video");
-    }
-    await new Promise(r => setTimeout(r, 5000));
+    if (status === "failed") throw new Error("HeyGen failed to generate video");
   }
 
-  // скачиваем
-  const videoResp = await fetch(videoUrl);
-  const buffer = Buffer.from(await videoResp.arrayBuffer());
-  fs.writeFileSync(outFile, buffer);
+  // скачиваем ролик
+  const fileResp = await fetch(videoUrl);
+  if (!fileResp.ok) {
+    const bt = await fileResp.text();
+    throw new Error(`Download failed: ${fileResp.status} ${bt}`);
+  }
+  const buf = Buffer.from(await fileResp.arrayBuffer());
+  fs.writeFileSync(outFile, buf);
 }
 
 // === 3. API ===
@@ -110,11 +135,9 @@ app.post("/generate", async (req, res) => {
     const dir = "outputs";
     if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 
-    // скрипт
     const script = await generateScript(topic);
     fs.writeFileSync(`${dir}/${id}.txt`, script);
 
-    // видео
     const videoFile = `${dir}/${id}.mp4`;
     await generateHeygenVideo(script, videoFile);
 
