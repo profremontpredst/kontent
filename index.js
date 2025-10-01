@@ -76,7 +76,7 @@ async function generateHeygenVideo(script, outFile) {
   let videoUrl;
   for (;;) {
     await new Promise(r => setTimeout(r, 3000));
-    const st = await fetch(`https://api.heygen.com/v2/video_status.get?video_id=${encodeURIComponent(videoId)}`, {
+    const st = await fetch(`https://api.heygen.com/v2/video/status.get?video_id=${encodeURIComponent(videoId)}`, {
       headers: { "X-Api-Key": process.env.HEYGEN_KEY }
     });
     const stText = await st.text();
