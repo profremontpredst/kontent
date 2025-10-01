@@ -80,9 +80,9 @@ async function generateHeygenVideo(script, outFile) {
     await new Promise(r => setTimeout(r, 4000));
 
     const st = await fetch(
-      `https://api.heygen.com/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`,
-      { headers: { "X-Api-Key": process.env.HEYGEN_KEY } }
-    );
+  `https://api.heygen.com/v2/video/status?video_id=${encodeURIComponent(videoId)}`,
+  { headers: { "X-Api-Key": process.env.HEYGEN_KEY } }
+);
 
     const stText = await st.text();
     console.log("HEYGEN STATUS RAW:", st.status, stText);
