@@ -16,7 +16,7 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 
 const PORT = process.env.PORT || 3000;
 
-// === 1. GPT пишет скрипт ===
+// ===== 1) GPT пишет скрипт =====
 async function generateScript(topic) {
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -34,14 +34,27 @@ async function generateScript(topic) {
     })
   });
 
-  const data = await resp.json();
+  const text = await resp.text();
+  if (!resp.ok) throw new Error(`OpenAI failed: ${resp.status} ${text}`);
+  const data = JSON.parse(text);
   return data.choices[0].message.content.trim();
 }
 
-// === 2. HeyGen генерит видео (без ожидания статуса) ===
+// ===== 2) HeyGen генерит видео (V2 create + V1 status) =====
+const AVATAR_ID = "Annie_expressive7_public"; // <- из твоего списка avatars.json
+
 async function generateHeygenVideo(script, outFile) {
-  const avatar_id = "Annie_expressive7_public"; 
-  const voice_id = "1bd001e7e50f421d891986aad5158bc8";
+  // --- create (V2)
+  const createBody = {
+    dimension: { width: 1280, height: 720 },
+    video_inputs: [
+      {
+        character: { type: "avatar", avatar_id: AVATAR_ID },
+        voice: { type: "silence", duration: 1.0 }, // valid SilenceVoiceSettings
+        background: { type: "color", value: "#ffffff" }
+      }
+    ]
+  };
 
   const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -49,29 +62,47 @@ async function generateHeygenVideo(script, outFile) {
       "X-Api-Key": process.env.HEYGEN_KEY,
       "Content-Type": "application/json"
     },
-    body: JSON.stringify({
-      dimension: { width: 1280, height: 720 },
-      background: { type: "color", value: "#ffffff" },
-      video_inputs: [
-        {
-          avatar: { avatar_id },
-          voice: { type: "text", voice_id, input_text: script }
-        }
-      ]
-    })
+    body: JSON.stringify(createBody)
   });
 
   const createText = await createResp.text();
   console.log("HEYGEN CREATE RAW:", createResp.status, createText);
-
   if (!createResp.ok) throw new Error(`HeyGen create failed: ${createText}`);
+
   const createData = JSON.parse(createText);
+  const videoId =
+    (createData.data && createData.data.video_id) || createData.video_id;
+  if (!videoId) throw new Error("No video_id in create response");
 
-  // сразу берём video_url, если оно есть
-  const videoUrl = (createData.data && createData.data.video_url) || createData.video_url;
-  if (!videoUrl) throw new Error("No video_url returned (скорее всего ограничение бесплатного тарифа)");
+  // --- poll status (V1 /video_status.get)
+  let videoUrl;
+  while (true) {
+    await new Promise(r => setTimeout(r, 4000));
 
-  // качаем ролик
+    const st = await fetch(
+      `https://api.heygen.com/v1/video_status.get?video_id=${encodeURIComponent(videoId)}`,
+      { headers: { "X-Api-Key": process.env.HEYGEN_KEY } }
+    );
+
+    const stText = await st.text();
+    console.log("HEYGEN STATUS RAW:", st.status, stText);
+
+    if (!st.ok) throw new Error(`HeyGen status failed: ${stText}`);
+
+    const stData = JSON.parse(stText);
+    const d = stData.data || {};
+    if (d.status === "completed") {
+      videoUrl = d.video_url;
+      if (!videoUrl) throw new Error("Status completed but video_url missing");
+      break;
+    }
+    if (d.status === "failed") {
+      throw new Error(`HeyGen failed: ${JSON.stringify(d.error)}`);
+    }
+    // pending/processing -> продолжаем ждать
+  }
+
+  // --- download mp4
   const fileResp = await fetch(videoUrl);
   if (!fileResp.ok) {
     const bt = await fileResp.text();
@@ -81,7 +112,7 @@ async function generateHeygenVideo(script, outFile) {
   fs.writeFileSync(outFile, buf);
 }
 
-// === 3. API ===
+// ===== 3) API =====
 app.post("/generate", async (req, res) => {
   try {
     const { topic } = req.body;
@@ -95,11 +126,7 @@ app.post("/generate", async (req, res) => {
     const videoFile = `${dir}/${id}.mp4`;
     await generateHeygenVideo(script, videoFile);
 
-    res.json({
-      status: "ok",
-      script,
-      video: `/outputs/${id}.mp4`
-    });
+    res.json({ status: "ok", script, video: `/outputs/${id}.mp4` });
   } catch (err) {
     console.error("🔥 ERROR:", err);
     res.status(500).json({ error: err.message });
