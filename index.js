@@ -56,7 +56,14 @@ async function generateHeygenVideo(script, outFile) {
     })
   });
 
-  const data = await resp.json();
+  const text = await resp.text();
+console.log("HEYGEN RAW:", text);
+let data;
+try {
+  data = JSON.parse(text);
+} catch {
+  throw new Error("HeyGen вернул не JSON, а HTML (скорее всего 401 Unauthorized — проверь HEYGEN_KEY)");
+}
   if (!data.data) throw new Error("HeyGen error: " + JSON.stringify(data));
 
   const videoId = data.data.video_id;
