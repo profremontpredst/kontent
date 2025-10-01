@@ -43,7 +43,7 @@ async function generateHeygenVideo(script, outFile) {
   const avatar_id = "Annie_expressive7_public"; // ✅ рабочий аватар
   const voice_id = "1bd001e7e50f421d891986aad5158bc8"; // ✅ рабочий голос
 
-  const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
+  const st = await fetch(`https://api.heygen.com/v2/video_status.get?video_id=${encodeURIComponent(videoId)}`, {
     method: "POST",
     headers: {
       "X-Api-Key": process.env.HEYGEN_KEY,
