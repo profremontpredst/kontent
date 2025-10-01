@@ -52,26 +52,9 @@ async function pickDefaultAvatarId() {
   return nonPremium.avatar_id;
 }
 
-// === берём первый доступный голос EN ===
-async function pickDefaultVoiceId() {
-  const r = await fetch("https://api.heygen.com/v2/voices", {
-    headers: { "X-Api-Key": process.env.HEYGEN_KEY }
-  });
-  const t = await r.text();
-  console.log("VOICES RAW:", r.status, t);
-  const data = JSON.parse(t);
-  const list = (data.voices || []).filter(v => v && typeof v.voice_id === "string");
-  if (!list.length) throw new Error("No voices available");
-  const en = list.find(v => (v.language || "").toLowerCase().startsWith("en"));
-  return (en || list[0]).voice_id;
-}
-
-// === 2. HeyGen генерит видео ===
+// === 2. HeyGen генерит видео без звука ===
 async function generateHeygenVideo(script, outFile) {
-  const [avatar_id, voice_id] = await Promise.all([
-    pickDefaultAvatarId(),
-    pickDefaultVoiceId()
-  ]);
+  const avatar_id = await pickDefaultAvatarId();
 
   const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -81,11 +64,12 @@ async function generateHeygenVideo(script, outFile) {
     },
     body: JSON.stringify({
       dimension: { width: 1280, height: 720 },
-      background: { type: "color", value: "#ffffff" },   // 👈 фон на верхнем уровне
+      background: { type: "color", value: "#ffffff" },
       video_inputs: [
         {
-          avatar: { avatar_id },                         // 👈 avatar, не character
-          voice: { type: "text", voice_id, input_text: script }
+          avatar: { avatar_id },
+          // ❌ voice убран — генерим только мимику
+          input_text: script
         }
       ]
     })
