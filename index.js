@@ -29,47 +29,18 @@ async function generateScript(topic) {
     body: JSON.stringify({
       model: "gpt-4o-mini",
       messages: [
-        { role: "system", content: "Ты сценарист, напиши короткий скрипт для видео" },
+        { role: "system", content: "Ты сценарист, напиши короткий скрипт для видео, не длиннее 40 секунд речи." },
         { role: "user", content: `Тема: ${topic}` }
       ],
-      max_tokens: 300
+      max_tokens: 150
     })
   });
   const data = await resp.json();
   return data.choices[0].message.content.trim();
 }
 
-// === 2. ElevenLabs озвучка ===
-async function textToSpeech(text, outFile) {
-  const resp = await fetch("https://api.elevenlabs.io/v1/text-to-speech/EXAVITQu4vr4xnSDxMaL", {
-    method: "POST",
-    headers: {
-      "xi-api-key": process.env.ELEVEN_KEY,
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({
-      text,
-      voice_settings: { stability: 0.5, similarity_boost: 0.8 }
-    })
-  });
-
-  const buffer = Buffer.from(await resp.arrayBuffer());
-  fs.writeFileSync(outFile, buffer);
-}
-
-// === 3. HeyGen видео (говорящее лицо) ===
-async function generateHeygenVideo(audioFile, outFile) {
-  // Загружаем аудио
-  const audioData = fs.readFileSync(audioFile);
-  const uploadResp = await fetch("https://api.heygen.com/v1/media/upload", {
-    method: "POST",
-    headers: { "Authorization": `Bearer ${process.env.HEYGEN_KEY}` },
-    body: audioData
-  });
-  const upload = await uploadResp.json();
-  const audioUrl = upload.data?.url;
-
-  // Запускаем видео-генерацию
+// === 2. HeyGen генерит видео по тексту ===
+async function generateHeygenVideo(script, outFile) {
   const resp = await fetch("https://api.heygen.com/v1/video/generate", {
     method: "POST",
     headers: {
@@ -77,37 +48,44 @@ async function generateHeygenVideo(audioFile, outFile) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      video_inputs: [{
-        actor: "default", // можно заменить на актёра из библиотеки HeyGen
-        audio_url: audioUrl
-      }]
+      background: "white",
+      dimension: "1280x720",
+      actor: "default", // можно поменять на другого
+      script: script,
+      voice: "en_us_001" // фиксированный голос
     })
   });
 
   const data = await resp.json();
+  if (!data.data) throw new Error("HeyGen error: " + JSON.stringify(data));
+
   const videoId = data.data.video_id;
 
-  // Ждём готовности
+  // ждём готовности
   let videoUrl;
   while (true) {
     const statusResp = await fetch(`https://api.heygen.com/v1/video/status?video_id=${videoId}`, {
       headers: { "Authorization": `Bearer ${process.env.HEYGEN_KEY}` }
     });
     const statusData = await statusResp.json();
+
     if (statusData.data.status === "completed") {
       videoUrl = statusData.data.video_url;
       break;
     }
+    if (statusData.data.status === "failed") {
+      throw new Error("HeyGen failed to generate video");
+    }
     await new Promise(r => setTimeout(r, 5000));
   }
 
-  // Скачиваем
+  // скачиваем
   const videoResp = await fetch(videoUrl);
   const buffer = Buffer.from(await videoResp.arrayBuffer());
   fs.writeFileSync(outFile, buffer);
 }
 
-// === 4. API ===
+// === 3. API ===
 app.post("/generate", async (req, res) => {
   try {
     const { topic } = req.body;
@@ -115,17 +93,13 @@ app.post("/generate", async (req, res) => {
     const dir = "outputs";
     if (!fs.existsSync(dir)) fs.mkdirSync(dir);
 
-    // Скрипт
+    // скрипт
     const script = await generateScript(topic);
     fs.writeFileSync(`${dir}/${id}.txt`, script);
 
-    // Голос
-    const voiceFile = `${dir}/${id}.mp3`;
-    await textToSpeech(script, voiceFile);
-
-    // Видео
+    // видео
     const videoFile = `${dir}/${id}.mp4`;
-    await generateHeygenVideo(voiceFile, videoFile);
+    await generateHeygenVideo(script, videoFile);
 
     res.json({
       status: "ok",
