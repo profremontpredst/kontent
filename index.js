@@ -38,23 +38,9 @@ async function generateScript(topic) {
   return data.choices[0].message.content.trim();
 }
 
-// === берём первый доступный аватар ===
-async function pickDefaultAvatarId() {
-  const r = await fetch("https://api.heygen.com/v2/avatars", {
-    headers: { "X-Api-Key": process.env.HEYGEN_KEY }
-  });
-  const t = await r.text();
-  console.log("AVATARS RAW:", r.status, t);
-  const data = JSON.parse(t);
-  const list = (data.avatars || []).filter(a => a && typeof a.avatar_id === "string");
-  if (!list.length) throw new Error("No avatars available");
-  const nonPremium = list.find(a => a.premium === false) || list[0];
-  return nonPremium.avatar_id;
-}
-
-// === 2. HeyGen генерит видео без звука ===
+// === 2. HeyGen генерит видео (фиксированный аватар) ===
 async function generateHeygenVideo(script, outFile) {
-  const avatar_id = await pickDefaultAvatarId();
+  const avatar_id = "Annie_expressive7_public"; // ✅ жёстко прошитый рабочий аватар
 
   const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -68,7 +54,7 @@ async function generateHeygenVideo(script, outFile) {
       video_inputs: [
         {
           avatar: { avatar_id },
-          // ❌ voice убран — генерим только мимику
+          // ❌ без блока voice (только видео)
           input_text: script
         }
       ]
