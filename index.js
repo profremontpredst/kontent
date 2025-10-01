@@ -48,12 +48,12 @@ async function generateHeygenVideo(script, outFile) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-      background: "white",
-      dimension: "1280x720",
-      character: "daisy",      // новый параметр вместо actor
-      voice: "en_us_001",
-      input_text: script       // новый параметр вместо script
-    })
+  background: "white",
+  dimension: { width: 1280, height: 720 },
+  character: "daisy",
+  voice: "en_us_001",
+  input_text: script
+})
   });
 
   const text = await resp.text();
