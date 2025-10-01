@@ -38,9 +38,10 @@ async function generateScript(topic) {
   return data.choices[0].message.content.trim();
 }
 
-// === 2. HeyGen генерит видео (фиксированный аватар) ===
+// === 2. HeyGen генерит видео (фиксированные avatar + voice) ===
 async function generateHeygenVideo(script, outFile) {
-  const avatar_id = "Annie_expressive7_public"; // ✅ жёстко прошитый рабочий аватар
+  const avatar_id = "Annie_expressive7_public"; // ✅ рабочий аватар
+  const voice_id = "1bd001e7e50f421d891986aad5158bc8"; // ✅ рабочий голос
 
   const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -54,8 +55,7 @@ async function generateHeygenVideo(script, outFile) {
       video_inputs: [
         {
           avatar: { avatar_id },
-          // ❌ без блока voice (только видео)
-          input_text: script
+          voice: { type: "text", voice_id, input_text: script }
         }
       ]
     })
