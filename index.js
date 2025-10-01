@@ -40,10 +40,11 @@ async function generateScript(topic) {
 
 // === 2. HeyGen генерит видео (фиксированные avatar + voice) ===
 async function generateHeygenVideo(script, outFile) {
-  const avatar_id = "Annie_expressive7_public"; // ✅ рабочий аватар
-  const voice_id = "1bd001e7e50f421d891986aad5158bc8"; // ✅ рабочий голос
+  const avatar_id = "Annie_expressive7_public"; 
+  const voice_id = "1bd001e7e50f421d891986aad5158bc8";
 
-  const st = await fetch(`https://api.heygen.com/v2/video_status.get?video_id=${encodeURIComponent(videoId)}`, {
+  // 1. Создаём видео
+  const createResp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
     headers: {
       "X-Api-Key": process.env.HEYGEN_KEY,
@@ -63,31 +64,37 @@ async function generateHeygenVideo(script, outFile) {
 
   const createText = await createResp.text();
   console.log("HEYGEN CREATE RAW:", createResp.status, createText);
+
   if (!createResp.ok) throw new Error(`HeyGen create failed: ${createText}`);
   const createData = JSON.parse(createText);
-  const videoId = createData.video_id || (createData.data && createData.data.video_id);
+
+  // ✅ тут объявляем переменную
+  let videoId = createData.video_id || (createData.data && createData.data.video_id);
   if (!videoId) throw new Error("No video_id in create response");
 
-  // ждём готовности
+  // 2. Ждём готовности
   let videoUrl;
   for (;;) {
     await new Promise(r => setTimeout(r, 3000));
-    const st = await fetch(`https://api.heygen.com/v2/video/status?video_id=${encodeURIComponent(videoId)}`, {
+    const st = await fetch(`https://api.heygen.com/v2/video_status.get?video_id=${encodeURIComponent(videoId)}`, {
       headers: { "X-Api-Key": process.env.HEYGEN_KEY }
     });
     const stText = await st.text();
     console.log("HEYGEN STATUS RAW:", st.status, stText);
     if (!st.ok) throw new Error(`HeyGen status failed: ${stText}`);
     const stData = JSON.parse(stText);
+
     const status = (stData.data && stData.data.status) || stData.status;
     if (status === "completed") {
       videoUrl = (stData.data && stData.data.video_url) || stData.video_url;
       break;
     }
-    if (status === "failed") throw new Error("HeyGen failed to generate video");
+    if (status === "failed") {
+      throw new Error("HeyGen failed to generate video");
+    }
   }
 
-  // скачиваем ролик
+  // 3. Скачиваем видео
   const fileResp = await fetch(videoUrl);
   if (!fileResp.ok) {
     const bt = await fileResp.text();
