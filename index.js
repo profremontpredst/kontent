@@ -1,4 +1,3 @@
-// index.js
 import express from "express";
 import fetch from "node-fetch";
 import fs from "fs";
@@ -35,44 +34,49 @@ async function generateScript(topic) {
       max_tokens: 150
     })
   });
+
   const data = await resp.json();
   return data.choices[0].message.content.trim();
 }
 
 // === 2. HeyGen генерит видео по тексту ===
 async function generateHeygenVideo(script, outFile) {
-  const resp = await fetch("https://api.heygen.com/v1/video/generate", {
+  const resp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${process.env.HEYGEN_KEY}`,
+      "X-Api-Key": process.env.HEYGEN_KEY, // ✅ правильный хедер
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
       background: "white",
       dimension: "1280x720",
-      actor: "default", // можно поменять на другого
-      script: script,
-      voice: "en_us_001" // фиксированный голос
+      character: "daisy",      // новый параметр вместо actor
+      voice: "en_us_001",
+      input_text: script       // новый параметр вместо script
     })
   });
 
   const text = await resp.text();
-console.log("HEYGEN RAW:", text);
-let data;
-try {
-  data = JSON.parse(text);
-} catch {
-  throw new Error("HeyGen вернул не JSON, а HTML (скорее всего 401 Unauthorized — проверь HEYGEN_KEY)");
-}
-  if (!data.data) throw new Error("HeyGen error: " + JSON.stringify(data));
+  console.log("HEYGEN RAW:", text);
+
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("HeyGen вернул не JSON (скорее всего 401 Unauthorized). Проверь HEYGEN_KEY");
+  }
+
+  if (!data.data || !data.data.video_id) {
+    throw new Error("HeyGen error: " + JSON.stringify(data));
+  }
 
   const videoId = data.data.video_id;
 
   // ждём готовности
   let videoUrl;
   while (true) {
-    const statusResp = await fetch(`https://api.heygen.com/v1/video/status?video_id=${videoId}`, {
-      headers: { "Authorization": `Bearer ${process.env.HEYGEN_KEY}` }
+    const statusResp = await fetch(`https://api.heygen.com/v2/video/status?video_id=${videoId}`, {
+      headers: { "X-Api-Key": process.env.HEYGEN_KEY }
     });
     const statusData = await statusResp.json();
 
@@ -114,7 +118,7 @@ app.post("/generate", async (req, res) => {
       video: `/outputs/${id}.mp4`
     });
   } catch (err) {
-    console.error(err);
+    console.error("🔥 ERROR:", err);
     res.status(500).json({ error: err.message });
   }
 });
