@@ -45,7 +45,7 @@ async function generateHeygenVideo(script, outFile) {
   const resp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
     headers: {
-      "X-Api-Key": process.env.HEYGEN_KEY, // ✅ правильный хедер
+      "X-Api-Key": process.env.HEYGEN_KEY,
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
@@ -53,8 +53,8 @@ async function generateHeygenVideo(script, outFile) {
       dimension: { width: 1280, height: 720 },
       video_inputs: [
         {
-          character: "daisy",
-          voice: "en_us_001",
+          character: { character_id: "Anna_public_3_20240108" }, // 👈 рабочий аватар
+          voice: { voice_id: "1bd001e7e50f421d891986aad5158bc8" }, // 👈 рабочий голос
           input_text: script
         }
       ]
