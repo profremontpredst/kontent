@@ -40,6 +40,7 @@ async function generateScript(topic) {
 }
 
 // === 2. HeyGen генерит видео по тексту ===
+// === 2. HeyGen генерит видео по тексту ===
 async function generateHeygenVideo(script, outFile) {
   const resp = await fetch("https://api.heygen.com/v2/video/generate", {
     method: "POST",
@@ -48,12 +49,16 @@ async function generateHeygenVideo(script, outFile) {
       "Content-Type": "application/json"
     },
     body: JSON.stringify({
-  background: "white",
-  dimension: { width: 1280, height: 720 },
-  character: "daisy",
-  voice: "en_us_001",
-  input_text: script
-})
+      background: "white",
+      dimension: { width: 1280, height: 720 },
+      video_inputs: [
+        {
+          character: "daisy",
+          voice: "en_us_001",
+          input_text: script
+        }
+      ]
+    })
   });
 
   const text = await resp.text();
